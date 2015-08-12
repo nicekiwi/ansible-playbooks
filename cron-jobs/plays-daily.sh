@@ -2,9 +2,15 @@
 
 # Runs Daily at 22:00 Hours
 
+DIR=`pwd -P`
 FILES="backup-databases-all.yml"
 
-cd /home/ezra/Documents/playbooks
+# Change to cron-jobs directory
+cd $DIR
+:
+
+# Change up one directory to ansible-playbooks
+cd ..
 :
 
 for f in $FILES

@@ -2,9 +2,15 @@
 
 # Runs Monthly on the first day at 23:00 Hours
 
+DIR=`pwd -P`
 FILES="backup-ansible-server.yml"
 
-cd /home/ezra/Documents/playbooks
+# Change to cron-jobs directory
+cd $DIR
+:
+
+# Change up one directory to ansible-playbooks
+cd ..
 :
 
 for f in $FILES
