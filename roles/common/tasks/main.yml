@@ -63,6 +63,3 @@
     regexp: '^\*\.\*'
   notify:
     - Restart rsyslog
-
-- name: Ensure SSH keys are all there
-  shell: ssh-keygen -A

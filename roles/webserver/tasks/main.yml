@@ -74,10 +74,10 @@
     - restart nginx
 
 - name: Create BitBucket Public key
-  copy: src=~/.ssh/id_rsa_bitbucket.pub dest=/var/www/.ssh/id_rsa.pub owner=www-data group=www-data mode=0700
+  copy: src=~/.ssh/id_rsa_bitbucket.pub dest=/var/www/.ssh/id_rsa.pub owner=www-data group=www-data mode=0600
 
 - name: Create BitBucket Private key
-  copy: src=~/.ssh/id_rsa_bitbucket dest=/var/www/.ssh/id_rsa owner=www-data group=www-data mode=0700
+  copy: src=~/.ssh/id_rsa_bitbucket dest=/var/www/.ssh/id_rsa owner=www-data group=www-data mode=0600
 
 - name: install composer
   shell: curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
@@ -88,3 +88,6 @@
   lineinfile: 'dest=/etc/default/beanstalkd regexp="^#?START=.*" line="START=yes" state=present'
   notify:
     - restart beanstalkd
+
+- name: Ensure SSH keys are all there
+  shell: ssh-keygen -A
