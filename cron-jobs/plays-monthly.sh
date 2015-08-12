@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Runs Monthly on the first day at 23:00 Hours
+# 0 23 1 * * /home/ezra/Documents/ansible-playbooks/cron-jobs/plays-monthly.sh >/dev/null 2>&1
 
 DIR=`pwd -P`
 FILES="backup-ansible-server.yml"

@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Runs Weekly on Monday at 00:00 Hours
+# 0 0 * * 1 /home/ezra/Document/ansible-playbooks/cron-jobs/plays-weekly.sh >/dev/null 2>&1
 
 DIR=`pwd -P`
 FILES="backup-server-all.yml"

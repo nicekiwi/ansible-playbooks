@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Runs Daily at 22:00 Hours
+# 0 22 * * * /home/ezra/Documents/ansible-playbooks/cron-jobs/plays-daily.sh >/dev/null 2>&1
 
 DIR=`pwd -P`
 FILES="backup-databases-all.yml"
