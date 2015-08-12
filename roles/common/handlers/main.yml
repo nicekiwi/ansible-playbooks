@@ -1,0 +1,10 @@
+---
+# handlers file for common
+- name: Restart fail2ban
+  service: name=fail2ban state=restarted
+
+- name: Restart UFW
+  service: name=ufw state=restarted
+
+- name: Restart rsyslog
+  service: name=rsyslog state=restarted

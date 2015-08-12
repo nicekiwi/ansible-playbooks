@@ -1,0 +1,86 @@
+---
+- hosts: php
+  sudo: yes
+
+  roles:
+    - common
+    - webserver
+
+  tasks:
+
+  - name: Clone git repository
+    git: >
+      dest=/var/www/laravel
+      repo=https://github.com/do-community/do-ansible-adv-php
+      update=yes
+      version=example
+    sudo: yes
+    sudo_user: www-data
+    register: cloned
+
+  - name: composer create-project
+    composer: command=create-project working_dir=/var/www/laravel optimize_autoloader=no
+    sudo: yes
+    sudo_user: www-data
+    when: cloned|changed
+
+  - name: set APP_DEBUG=false
+    lineinfile: dest=/var/www/laravel/.env regexp='^APP_DEBUG=' line=APP_DEBUG=false
+
+  - name: set APP_ENV=production
+    lineinfile: dest=/var/www/laravel/.env regexp='^APP_ENV=' line=APP_ENV=production
+
+  - name: Configure nginx
+    template: src=nginx.conf dest=/etc/nginx/sites-available/default
+    notify:
+      - restart php5-fpm
+      - restart nginx
+
+  - name: Create MySQL DB
+    mysql_db: name=laravel state=present
+
+  - name: Generate DB password
+    shell: makepasswd --chars=32
+    args:
+      creates: /var/www/laravel/.dbpw
+    register: dbpwd
+
+  - name: Create MySQL User
+    mysql_user: name=laravel password={{ dbpwd.stdout }} priv=laravel.*:ALL state=present
+    when: dbpwd.changed
+
+  - name: set DB_DATABASE
+    lineinfile: dest=/var/www/laravel/.env regexp='^DB_DATABASE=' line=DB_DATABASE=laravel
+
+  - name: set DB_USERNAME
+    lineinfile: dest=/var/www/laravel/.env regexp='^DB_USERNAME=' line=DB_USERNAME=laravel
+
+  - name: set DB_PASSWORD
+    lineinfile: dest=/var/www/laravel/.env regexp='^DB_PASSWORD=' line=DB_PASSWORD={{ dbpwd.stdout }}
+    when: dbpwd.changed
+
+  - name: Save dbpw file
+    lineinfile: dest=/var/www/laravel/.dbpw line="{{ dbpwd.stdout }}" create=yes state=present
+    sudo: yes
+    sudo_user: www-data
+    when: dbpwd.changed
+
+  - name: Run artisan migrate
+    shell: php /var/www/laravel/artisan migrate --force
+    sudo: yes
+    sudo_user: www-data
+    when: dbpwd.changed
+
+  - name: Laravel Scheduler
+    cron: >
+      job="run-one php /var/www/laravel/artisan schedule:run 1>> /dev/null 2>&1"
+      state=present
+      user=www-data
+      name="php artisan schedule:run"
+
+  - name: Drop Config for supervisord into the conf.d directory
+    copy: src=laravel-worker.super.conf dest=/etc/supervisor/conf.d/laravel-worker.conf
+    notify: reread supervisord
+
+  handlers:
+    - include: common/handlers/main.yml

@@ -1,0 +1,81 @@
+---
+- name: Backup Sites and Essential files on webserver
+  hosts: webservers
+  sudo_user: root
+  sudo: yes
+
+  #vars:
+  #- 
+
+  tasks:
+  - name: Install Python and Boto for Amazon Upload.
+    apt: "name={{ item }} update_cache=yes state=latest"
+    with_items:
+      - python
+      - python-boto
+
+  - name: Create Backups directory
+    file: "path={{ remote_backup_dir }} state=directory"
+    tags:
+      - folders
+      - databases
+
+  - name: Create backup filename variable
+    shell: "echo {{ inventory_hostname }}--sites-configs-$(date +%Y-%m-%d.%H.%M).tar.gz"
+    register: backup_filename
+
+  - name: Copy all critical config directories and sites to backup folder
+    shell: "cp -R {{ item }} {{ remote_backup_dir }}/"
+    with_items: 
+      - /etc/nginx
+      - /etc/php5/fpm
+      - /etc/supervisor
+      - /var/spool/cron/crontabs
+      - /var/www/.ssh
+      - /var/www/sites
+      - /var/log
+      - /lib/ufw
+    tags:
+      - folders
+
+  # - name: Compress all sites to backup directory
+  #   shell: |
+  #     for i in {{ remote_sites_dir }}/*/; do 
+  #     tar -a -cf {{ remote_backup_dir }}/$(basename $i).tar.gz $i; 
+  #     done
+
+  - name: Compress backup directory to compressed file
+    shell: "tar -zcf {{ remote_base }}/{{ backup_filename.stdout }} {{ remote_backup_dir }}"
+
+  - name: Delete backup directory from server
+    file: "path={{ remote_backup_dir }} state=absent"
+    tags:
+      - folders
+      - databases
+
+  - name: Upload Backup to Amazon S3 
+    s3: 
+      aws_access_key: "{{ s3_access_key }}"
+      aws_secret_key: "{{ s3_secret_key }}"
+      region: "{{ s3_region }}"
+      bucket: "{{ s3_bucket }}"
+      object: "{{ backup_filename.stdout }}"
+      src: "{{ remote_base }}/{{ backup_filename.stdout }}"
+      mode: put
+
+  - name: Delete backup file from server
+    file: "path={{ remote_base }}/{{ backup_filename.stdout }} state=absent"
+    tags:
+      - folders
+      - databases
+
+  - name: "Send notification to Slack #backups"
+    local_action:
+      module: slack
+      domain: "{{ slack_domain }}"
+      token: "{{ slack_token }}"
+      msg: "{{ inventory_hostname }} sites-configs-backup; Completed."
+      channel: "#backups"
+      username: "Ansible on {{ inventory_hostname }}"
+      parse: 'none'
+    sudo_user: www-data

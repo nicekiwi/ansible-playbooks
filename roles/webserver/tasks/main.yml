@@ -1,0 +1,90 @@
+---
+# tasks file for webserver
+- name: add MariaDB key
+  apt_key: keyserver=keyserver.ubuntu.com id=0xcbcb082a1bb943db state=present
+
+- name: add MariaDB repo
+  apt_repository: repo='deb http://mariadb.uberglobalmirror.com//repo/10.0/ubuntu trusty main' state=present
+
+- name: add Nginx PPA
+  apt_repository: repo='ppa:nginx/stable' state=present
+
+- name: install packages
+  apt: "name={{ item }} update_cache=yes state=latest"
+  with_items:
+  - mcrypt
+  - nginx
+  - php5-cli
+  - php5-curl
+  - php5-fpm
+  - php5-intl
+  - php5-json
+  - php5-mcrypt
+  - php5-sqlite
+  - sqlite3
+  - mariadb-server
+  - mariadb-client
+  - php5-mysqlnd
+  - python-mysqldb
+  - supervisor
+  - beanstalkd
+  notify:
+  - restart php5-fpm
+  - restart nginx
+
+- include: setup-mysql.yml
+
+- name: copy over custom php.ini config
+  copy: src=php.ini dest=/etc/php5/fpm
+  notify:
+    - restart php5-fpm
+
+- name: enable php5 mcrypt module
+  shell: php5enmod mcrypt
+  args:
+    creates: /etc/php5/cli/conf.d/20-mcrypt.ini
+  notify:
+    - restart php5-fpm
+
+- name: Set www-data user shell
+  user: name=www-data shell=/bin/bash
+
+- name: create /var/www/ directory
+  file: dest=/var/www/ state=directory owner=www-data group=www-data mode=0700
+
+- name: create /var/www/.ssh/ directory
+  file: dest=/var/www/.ssh/ state=directory owner=www-data group=www-data mode=0700
+
+- name: Copy public key into /var/www
+  authorized_key: 
+    user: www-data 
+    key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+- name: copy over default Nginx config
+  copy: src=nginx.conf dest=/etc/nginx/nginx.conf
+  notify:
+    - restart nginx
+
+- name: copy over default nginx site config
+  copy: src=sites-available/default dest=/etc/nginx/sites-available/default
+
+- name: Create symlink to enable default nginx site
+  file: src=/etc/nginx/sites-available/default dest=/etc/nginx/sites-enabled/default state=link
+  notify:
+    - restart nginx
+
+- name: Create BitBucket Public key
+  copy: src=~/.ssh/id_rsa_bitbucket.pub dest=/var/www/.ssh/id_rsa.pub owner=www-data group=www-data mode=0700
+
+- name: Create BitBucket Private key
+  copy: src=~/.ssh/id_rsa_bitbucket dest=/var/www/.ssh/id_rsa owner=www-data group=www-data mode=0700
+
+- name: install composer
+  shell: curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+  args:
+    creates: /usr/local/bin/composer
+
+- name: setup beanstalkd
+  lineinfile: 'dest=/etc/default/beanstalkd regexp="^#?START=.*" line="START=yes" state=present'
+  notify:
+    - restart beanstalkd

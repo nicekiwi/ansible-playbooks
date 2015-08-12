@@ -1,0 +1,13 @@
+[do-forge-webservers]
+do-clean-winter
+
+[ansible-backup-server]
+ansible-server
+
+[web-servers]
+do-clean-winter
+webserver-local
+
+[database-servers]
+do-clean-winter
+webserver-local

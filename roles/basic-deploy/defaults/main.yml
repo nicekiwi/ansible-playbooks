@@ -1,0 +1,7 @@
+---
+
+git_repo: ''
+web_path: /var/www/default
+web_path_public: "{{ web_path }}"
+web_address: default.app
+nginx_site_template_path: templates/nginx.j2

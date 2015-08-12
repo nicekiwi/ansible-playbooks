@@ -1,0 +1,16 @@
+---
+# handlers file for webserver
+- name: reread supervisord
+  shell: /usr/bin/supervisorctl reread && /usr/bin/supervisorctl update
+
+- name: restart php5-fpm
+  service: name=php5-fpm state=restarted
+
+- name: restart nginx
+  service: name=nginx state=restarted
+
+- name: reload nginx
+  service: name=nginx state=reloaded
+
+- name: restart beanstalkd
+  service: name=beanstalkd state=restarted

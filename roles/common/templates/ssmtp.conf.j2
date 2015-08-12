@@ -1,0 +1,16 @@
+# Basic config
+
+root={{ root_email }}
+AuthMethod=Login
+UseSTARTTLS=Yes
+hostname={{ ansible_fqdn }}
+rewriteDomain={{ root_domain }}
+FromLineOverride=Yes
+
+# Mandrill config
+
+mailhub={{ mandrill_address }}:{{ mandrill_port }}
+AuthUser={{ mandrill_username }}
+AuthPass={{ mandrill_api_key }}
+
+# end of file

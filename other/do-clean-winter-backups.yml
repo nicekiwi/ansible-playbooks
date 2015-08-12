@@ -1,0 +1,134 @@
+---
+- name: Backup Databases on DO clean-winter
+  host: do-clean-winter
+  sudo: yes
+  sudo_user: forge
+
+  vars:
+    - remote_base: /var/www
+    - remote_sites_dir: /var/www
+    - remote_backup_dir: /home/forge/backups
+
+  tasks:
+
+    # Install deps
+    - name: Install Python and Boto for Amazon Upload.
+      apt: "name={{ item }} update_cache=yes state=latest"
+      with_items:
+        - python
+        - python-boto
+
+    # Create SQL backup user and backup dirs/filename
+    - name: Create MySQL Backup User
+      mysql_user: 
+        name: "{{ mysql_backup_user_username }}"
+        password: "{{ mysql_backup_user_password }}"
+        priv: "*.*:LOCK TABLES, SELECT, FILE, RELOAD, SUPER, SHOW VIEW"
+        state: present
+
+    - name: Create Backups directory
+      file: "path={{ remote_backup_dir }} state=directory"
+      tags:
+        - folders
+        - databases
+
+    - name: Create mysql backup filename variable
+      shell: "echo {{ inventory_hostname }}--databases-$(date +%Y-%m-%d.%H.%M).tar.gz"
+      register: mysql_backup_filename
+      tags:
+        - databases
+
+    - name: Create sites/config backup filename variable
+      shell: "echo {{ inventory_hostname }}--sites-configs-$(date +%Y-%m-%d.%H.%M).tar.gz"
+      register: sites_backup_filename
+      tags:
+        - folders
+
+    # MySQL Backups
+    - name: Dump all non-default databases to backup directory
+      shell: |
+        mysql --user={{ mysql_backup_user_username }} --password={{ mysql_backup_user_password }} -e 'show databases' | 
+        grep -Ev '(Database|mysql|_schema)' | 
+        while read dbname; do 
+        mysqldump --user={{ mysql_backup_user_username }} --password={{ mysql_backup_user_password }} --complete-insert $dbname > {{ remote_backup_dir }}/$dbname.sql;
+        done
+
+    - name: Compress backup directory to compressed file
+      shell: "tar -zcf {{ remote_backup_dir }}/{{ mysql_backup_filename.stdout }} {{ remote_backup_dir }}"
+
+    - name: Upload Backup file to Amazon S3 
+      s3: 
+        aws_access_key: "{{ s3_access_key }}"
+        aws_secret_key: "{{ s3_secret_key }}"
+        region: "{{ s3_region }}"
+        bucket: "{{ s3_bucket }}"
+        object: "{{ mysql_backup_filename.stdout }}"
+        src: "{{ remote_backup_dir }}/{{ mysql_backup_filename.stdout }}"
+        mode: put
+
+    - name: Remove MySQL Backup User
+      mysql_user: 
+        login_user: "{{ mysql_root_username }}"
+        login_password: "{{ mysql_root_password }}"
+        name: "{{ mysql_backup_user_username }}"
+        state: absent
+
+    - name: "Send notification to Slack #backups"
+      local_action:
+        module: slack
+        domain: "{{ slack_domain }}"
+        token: "{{ slack_token }}"
+        msg: "{{ inventory_hostname }} databases-backup; Completed."
+        channel: "#backups"
+        username: "Ansible on {{ inventory_hostname }}"
+        parse: 'none'
+
+    # Config / Sites Backup
+    - name: Copy all critical config directories and sites to backup folder
+      shell: "cp -R {{ item }} {{ remote_backup_dir }}/"
+      with_items: 
+        - /etc/nginx
+        - /etc/php5/fpm
+        - /etc/supervisor
+        - /var/spool/cron/crontabs
+        - /var/www
+        - /var/log
+        - /lib/ufw
+      tags:
+        - folders
+
+    - name: Compress backup directory to compressed file
+      shell: "tar -zcf {{ remote_base }}/{{ backup_filename.stdout }} {{ remote_backup_dir }}"
+
+    - name: Delete backup directory from server
+      file: "path={{ remote_backup_dir }} state=absent"
+      tags:
+        - folders
+        - databases
+
+    - name: Upload Backup to Amazon S3 
+      s3: 
+        aws_access_key: "{{ s3_access_key }}"
+        aws_secret_key: "{{ s3_secret_key }}"
+        region: "{{ s3_region }}"
+        bucket: "{{ s3_bucket }}"
+        object: "{{ backup_filename.stdout }}"
+        src: "{{ remote_base }}/{{ backup_filename.stdout }}"
+        mode: put
+
+    - name: Delete backup file from server
+      file: "path={{ remote_base }}/{{ backup_filename.stdout }} state=absent"
+      tags:
+        - folders
+        - databases
+
+    - name: "Send notification to Slack #backups"
+      local_action:
+        module: slack
+        domain: "{{ slack_domain }}"
+        token: "{{ slack_token }}"
+        msg: "{{ inventory_hostname }} sites-configs-backup; Completed."
+        channel: "#backups"
+        username: "Ansible on {{ inventory_hostname }}"
+        parse: 'none'
+      sudo_user: ezra

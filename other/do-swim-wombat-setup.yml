@@ -1,0 +1,11 @@
+---
+- name: Initial Setup for Digital Ocean Swim Wombat Server
+  hosts: webservers
+  sudo: yes
+
+  vars:
+    - mysql_root_password: null
+
+  roles:
+    - common
+    - webserver

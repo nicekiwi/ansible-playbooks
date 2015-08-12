@@ -1,0 +1,65 @@
+---
+- name: Backup Sites/Configs on do-forge servers
+  hosts: web-servers
+  become: yes
+
+  vars_files:
+    - vars/passwords.yml
+
+  vars:
+    - remote_backup_dir: "/tmp/ansible_backups_web"
+    - remote_backup_folders_dir: "{{ remote_backup_dir }}/folders"
+
+  tasks:
+
+    # Install deps
+    - name: Install Python and Boto for Amazon Upload.
+      apt: "name={{ item }} update_cache=yes state=latest"
+      with_items:
+        - python
+        - python-boto
+
+    - name: Create Backups directory
+      file: "path={{ remote_backup_folders_dir }} state=directory"
+      tags:
+        - folders
+
+    - name: Create sites + config backup filename variable
+      shell: "echo {{ inventory_hostname }}--server-$(date +%Y-%m-%d.%H.%M).tar.gz"
+      register: server_backup_filename
+      tags:
+        - folders
+
+    # Config / Sites Backup
+    - name: Copy all critical config directories and sites to backup folder
+      shell: "cp -R {{ item }} {{ remote_backup_folders_dir }}/"
+      with_items: "{{ remote_backup_folders_list }}"
+      tags:
+        - folders
+
+    - name: Compress backup directory to compressed file
+      shell: "tar -zcf {{ remote_backup_dir }}/{{ server_backup_filename.stdout }} {{ remote_backup_folders_dir }}"
+
+    - name: Upload Backup to Amazon S3 
+      s3: 
+        aws_access_key: "{{ s3_access_key }}"
+        aws_secret_key: "{{ s3_secret_key }}"
+        region: "{{ s3_region }}"
+        bucket: "{{ s3_bucket }}"
+        object: "{{ server_backup_filename.stdout }}"
+        src: "{{ remote_backup_dir }}/{{ server_backup_filename.stdout }}"
+        mode: put
+
+    - name: Delete backup directory from server
+      file: "path={{ remote_backup_dir }} state=absent"
+      tags:
+        - folders
+
+    - name: "Send notification to Slack #backups"
+      slack:
+        domain: "{{ slack_domain }}"
+        token: "{{ slack_token }}"
+        msg: "{{ inventory_hostname }} server-backup; Completed. - {{ server_backup_filename.stdout }}"
+        channel: "#backups"
+        username: "Ansible on {{ inventory_hostname }}"
+        parse: 'none'

@@ -1,0 +1,6 @@
+---
+
+# Config
+ansible_connection: local
+ansible_become_user: root
+ansible_become_pass: "{{ vaulted.host_vars.ansible_server.ansible_become_pass }}"

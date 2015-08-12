@@ -1,0 +1,21 @@
+---
+
+- name: clone git repo
+  git: "repo=git@bitbucket.org:no1fitness/external-redirect.git dest={{ web_path }} accept_hostkey=yes"
+  sudo_user: www-data
+  register: cloned
+
+- name: install composer deps
+  composer: "command=install working_dir={{ web_path }}"
+  sudo_user: www-data
+  when: cloned|changed
+
+- name: Configure nginx
+  template: "src={{ nginx_site_template_path }} dest=/etc/nginx/sites-available/{{ web_address }}"
+  register: link
+
+- name: "Create symlink to {{ web_address }}"
+  file: "src=/etc/nginx/sites-available/{{ web_address }} dest=/etc/nginx/sites-enabled/{{ web_address }} state=link"
+  when: link|changed
+  notify:
+    - reload nginx

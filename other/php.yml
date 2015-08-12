@@ -1,0 +1,173 @@
+---
+- hosts: php
+  sudo: yes
+
+  roles:
+    - common
+    - webserver
+
+  tasks:
+
+  - name: add MariaDB key
+    apt_key: keyserver=keyserver.ubuntu.com id=0xcbcb082a1bb943db state=present
+
+  - name: add MariaDB repo
+    apt_repository: repo='deb http://mariadb.uberglobalmirror.com//repo/10.0/ubuntu trusty main' state=present
+
+  - name: add Nginx PPA
+    apt_repository: repo='ppa:nginx/stable' state=present
+
+  - name: install packages
+    apt: "name={{ item }} update_cache=yes state=latest"
+    with_items:
+      - ufw
+      - curl
+      - git
+      - mcrypt
+      - nginx
+      - php5-cli
+      - php5-curl
+      - php5-fpm
+      - php5-intl
+      - php5-json
+      - php5-mcrypt
+      - php5-sqlite
+      - sqlite3
+      - mariadb-server
+      - mariadb-client
+      - php5-mysqlnd
+      - python-mysqldb
+      - makepasswd
+      - supervisor
+      - run-one
+      - beanstalkd
+    notify:
+      - restart php5-fpm
+      - restart nginx
+
+  - name: ensure php5-fpm cgi.fix_pathinfo=0
+    lineinfile: dest=/etc/php5/fpm/php.ini regexp='^(.*)cgi.fix_pathinfo=' line=cgi.fix_pathinfo=0
+    notify:
+      - restart php5-fpm
+      - restart nginx
+
+  - name: enable php5 mcrypt module
+    shell: php5enmod mcrypt
+    args:
+      creates: /etc/php5/cli/conf.d/20-mcrypt.ini
+
+  - name: create /var/www/ directory
+    file: dest=/var/www/ state=directory owner=www-data group=www-data mode=0700
+
+  - name: create /var/www/.ssh/ directory
+    file: dest=/var/www/.ssh/ state=directory owner=www-data group=www-data mode=0700
+
+#  - name: copy private ssh key
+#    copy: src=deploykey_rsa dest=/var/www/.ssh/id_rsa owner=www-data group=www-data mode=0600
+
+  - name: Clone git repository
+    git: >
+      dest=/var/www/laravel
+      repo=https://github.com/do-community/do-ansible-adv-php
+      update=yes
+      version=example
+    sudo: yes
+    sudo_user: www-data
+    register: cloned
+
+  - name: install composer
+    shell: curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+    args:
+      creates: /usr/local/bin/composer
+
+  - name: composer create-project
+    composer: command=create-project working_dir=/var/www/laravel optimize_autoloader=no
+    sudo: yes
+    sudo_user: www-data
+    when: cloned|changed
+
+  - name: make sure .env file exists
+    command: cp /var/www/laravel/.env.example /var/www/laravel/.env creates=/var/www/laravel/.env
+    register: env
+
+  - name: generate APP key
+    command: php artisan key:generate chdir=/var/www/laravel
+    when: env|changed
+
+  - name: set APP_DEBUG=false
+    lineinfile: dest=/var/www/laravel/.env regexp='^APP_DEBUG=' line=APP_DEBUG=false
+
+  - name: set APP_ENV=production
+    lineinfile: dest=/var/www/laravel/.env regexp='^APP_ENV=' line=APP_ENV=production
+
+  - name: Configure nginx
+    template: src=nginx.conf dest=/etc/nginx/sites-available/default
+    notify:
+      - restart php5-fpm
+      - restart nginx
+
+  - name: Copy public key into /var/www
+    authorized_key: "user=www-data key={{ lookup('file', 'deploykey.pub') }}"
+
+  - name: Set www-data user shell
+    user: name=www-data shell=/bin/bash
+
+  - name: Enable UFW
+    ufw: direction=incoming policy=deny state=enabled
+
+  - name: UFW limit SSH
+    ufw: rule=limit port=ssh
+
+  - name: UFW open HTTP
+    ufw: rule=allow port=http
+
+  - name: Create MySQL DB
+    mysql_db: name=laravel state=present
+
+  - name: Generate DB password
+    shell: makepasswd --chars=32
+    args:
+      creates: /var/www/laravel/.dbpw
+    register: dbpwd
+
+  - name: Create MySQL User
+    mysql_user: "name=laravel password={{ dbpwd.stdout }} priv=laravel.*:ALL state=present"
+    when: dbpwd.changed
+
+  - name: set DB_DATABASE
+    lineinfile: dest=/var/www/laravel/.env regexp='^DB_DATABASE=' line=DB_DATABASE=laravel
+
+  - name: set DB_USERNAME
+    lineinfile: dest=/var/www/laravel/.env regexp='^DB_USERNAME=' line=DB_USERNAME=laravel
+
+  - name: set DB_PASSWORD
+    lineinfile: "dest=/var/www/laravel/.env regexp='^DB_PASSWORD=' line=DB_PASSWORD={{ dbpwd.stdout }}"
+    when: dbpwd.changed
+
+  - name: Save dbpw file
+    lineinfile: "dest=/var/www/laravel/.dbpw line={{ dbpwd.stdout }} create=yes state=present"
+    sudo: yes
+    sudo_user: www-data
+    when: dbpwd.changed
+
+  - name: Run artisan migrate
+    shell: php /var/www/laravel/artisan migrate --force
+    sudo: yes
+    sudo_user: www-data
+    when: dbpwd.changed
+
+  - name: Laravel Scheduler
+    cron: >
+      job="run-one php /var/www/laravel/artisan schedule:run 1>> /dev/null 2>&1"
+      state=present
+      user=www-data
+      name="php artisan schedule:run"
+
+  - name: setup beanstalkd
+    lineinfile: "dest=/etc/default/beanstalkd regexp='^#START=yes' line=START=yes"
+
+  - name: Drop Config for supervisord into the conf.d directory
+    copy: src=laravel-worker.super.conf dest=/etc/supervisor/conf.d/laravel-worker.conf
+    notify: reread supervisord
+
+  handlers:

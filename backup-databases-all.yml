@@ -1,0 +1,90 @@
+---
+- name: Backup Databases on Ubuntu servers
+  hosts: database-servers
+  become: yes
+
+  vars_files:
+    - vars/passwords.yml
+
+  vars:
+    - remote_backup_dir: "/tmp/ansible_backups_db"
+    - remote_backup_folders_dir: "{{ remote_backup_dir }}/folders"
+
+  tasks:
+
+    # Install deps
+    - name: Install Python - Python MysqlDB and Boto for Amazon Upload.
+      apt: "name={{ item }} update_cache=yes state=latest"
+      with_items:
+        - python
+        - python-boto
+        - python-mysqldb
+
+    - name: copy .my.cnf file with root password credentials
+      template: src=roles/webserver/templates/root/.my.j2 dest=/root/.my.cnf owner=root mode=0600
+
+    # Create SQL backup user and backup dirs/filename
+    - name: Create MySQL Backup User
+      mysql_user: 
+        name: "{{ mysql_backup_user_username }}"
+        password: "{{ mysql_backup_user_password }}"
+        priv: "*.*:LOCK TABLES, SELECT, FILE, RELOAD, SUPER, SHOW VIEW"
+        state: present
+
+    - name: Create Backups directory
+      file: "path={{ remote_backup_databases_dir }} state=directory"
+      tags:
+        - folders
+        - databases
+
+    - name: Create databses backup filename variable
+      shell: "echo {{ inventory_hostname }}--databases-$(date +%Y-%m-%d--%H-%M).tar.gz"
+      register: databases_backup_filename
+      tags:
+        - databases
+
+    # MySQL Backups
+    - name: Dump all non-default databases to backup directory
+      shell: |
+        mysql --user={{ mysql_backup_user_username }} --password={{ mysql_backup_user_password }} -e 'show databases' | 
+        grep -Ev '(Database|mysql|_schema)' | 
+        while read dbname; do 
+        mysqldump --user={{ mysql_backup_user_username }} --password={{ mysql_backup_user_password }} --complete-insert $dbname > {{ remote_backup_databases_dir }}/$dbname.sql;
+        done
+
+    - name: Compress backup directory to compressed file
+      shell: "tar -zcf {{ remote_backup_dir }}/{{ databases_backup_filename.stdout }} {{ remote_backup_databases_dir }}"
+
+    - name: Upload Backup file to Amazon S3 
+      s3: 
+        aws_access_key: "{{ s3_access_key }}"
+        aws_secret_key: "{{ s3_secret_key }}"
+        region: "{{ s3_region }}"
+        bucket: "{{ s3_bucket }}"
+        object: "{{ databases_backup_filename.stdout }}"
+        metadata: 'Content-Encoding=gzip'
+        # headers: 'Content-Type=application/x-gzip'
+        src: "{{ remote_backup_dir }}/{{ databases_backup_filename.stdout }}"
+        mode: put
+
+    - name: Remove MySQL Backup User
+      mysql_user: 
+        login_user: "{{ mysql_root_username }}"
+        login_password: "{{ mysql_root_password }}"
+        name: "{{ mysql_backup_user_username }}"
+        state: absent
+
+    - name: Delete backup directory from server
+      file: "path={{ remote_backup_dir }} state=absent"
+      tags:
+        - folders
+        - databases
+
+    - name: "Send notification to Slack #backups"
+      slack:
+        domain: "{{ slack_domain }}"
+        token: "{{ slack_token }}"
+        msg: "{{ inventory_hostname }} databases-backup; Completed. - {{ databases_backup_filename.stdout }}"
+        channel: "#backups"
+        username: "Ansible on {{ inventory_hostname }}"
+        parse: 'none'

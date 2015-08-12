@@ -1,0 +1,41 @@
+---
+
+# Config
+ssh_port: 22
+
+# Root
+root_email: webmaster@no1fitness.co.nz
+root_domain: no1fitness.co.nz
+
+# Test Email
+test_email_to: ezra@no1fitness.co.nz
+
+# SSMTP Mandrill
+mandrill_username: ezra@no1fitness.co.nz
+mandrill_api_key: "{{ vaulted.mandrill_api_key }}"
+
+# MySQL
+mysql_root_username: root
+mysql_root_password: null
+
+# MySQL backup User
+mysql_backup_user_username: backup_user
+mysql_backup_user_password: "{{ vaulted.mysql_backup_user_password }}"
+
+# Amazon S3
+s3_access_key: "{{ vaulted.s3_access_key }}"
+s3_secret_key: "{{ vaulted.s3_secret_key }}"
+s3_bucket: "{{ vaulted.s3_bucket }}"
+s3_region: "{{ vaulted.s3_region }}"
+
+# Slack
+slack_domain: "{{ vaulted.slack_domain }}"
+slack_token: "{{ vaulted.slack_token }}"
+slack_local_user: ezra
+
+# Webroot
+remote_base: /var/www
+remote_sites_dir: /var/www
+
+# Backups
+remote_backup_dir: "/tmp/ansible_backups"

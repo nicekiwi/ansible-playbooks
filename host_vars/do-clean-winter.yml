@@ -1,0 +1,21 @@
+---
+
+# Config
+ansible_become_user: root
+ansible_become_pass: "{{ vaulted.host_vars.do_clean_winter.ansible_become_pass }}"
+
+# MySQL
+mysql_root_username: forge
+mysql_root_password: "{{ vaulted.host_vars.do_clean_winter.mysql_root_password }}"
+
+# Backup folder list
+remote_backup_folders_list:
+  - /home/forge
+  - /etc/nginx
+  - /etc/php5/fpm
+  - /etc/supervisor
+  - /etc/ssh
+  - /lib/ufw
+  - /var/spool/cron/crontabs
+  - /var/www
+  - /var/log

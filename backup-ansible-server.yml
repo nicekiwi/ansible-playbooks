@@ -1,0 +1,73 @@
+---
+- name: Backup the Ansible Server
+  hosts: ansible-backup-server
+  connection: local
+  become: yes
+
+  vars_files:
+    - vars/passwords.yml
+
+  vars:
+    - remote_backup_dir: "/tmp/ansible_backups"
+    - remote_backup_folders_dir: "{{ remote_backup_dir }}/folders"
+
+  tasks:
+
+    # exluded as it takes forever on limited system specs
+    #Install deps
+    # - name: Install Python and Boto for Amazon Upload.
+    #   yum: "name={{ item }} update_cache=yes state=latest"
+    #   with_items:
+    #     - python
+    #     - python-boto
+
+    - name: Create Backups directory
+      file: "path={{ remote_backup_folders_dir }} state=directory"
+      tags:
+        - folders
+
+    - name: Create server backup filename variable
+      shell: "echo ansible-backup-server-$(date +%Y-%m-%d.%H.%M).tar.gz"
+      register: server_backup_filename
+      tags:
+        - folders
+
+    # Config / Sites Backup
+    - name: Copy all critical config directories and sites to backup folder
+      shell: "cp -R {{ item }} {{ remote_backup_folders_dir }}/"
+      with_items: 
+        - /home/ezra
+        - /etc/ansible
+        - /var/log
+      tags:
+        - folders
+
+    - name: Add cron tasks to backup
+      shell: "crontab -u ezra -l > {{ remote_backup_folders_dir }}/ezra-cron-jobs.txt"
+
+    - name: Compress backup directory to compressed file
+      shell: "tar -zcf {{ remote_backup_dir }}/{{ server_backup_filename.stdout }} {{ remote_backup_folders_dir }}"
+
+    - name: Upload Backup to Amazon S3 
+      s3: 
+        aws_access_key: "{{ s3_access_key }}"
+        aws_secret_key: "{{ s3_secret_key }}"
+        region: "{{ s3_region }}"
+        bucket: "{{ s3_bucket }}"
+        object: "{{ server_backup_filename.stdout }}"
+        src: "{{ remote_backup_dir }}/{{ server_backup_filename.stdout }}"
+        mode: put
+
+    - name: Delete backup directory from server
+      file: "path={{ remote_backup_dir }} state=absent"
+      tags:
+        - folders
+
+    - name: "Send notification to Slack #backups"
+      slack:
+        domain: "{{ slack_domain }}"
+        token: "{{ slack_token }}"
+        msg: "ansible-backup-server server-backup; Completed. - {{ server_backup_filename.stdout }}"
+        channel: "#backups"
+        username: "Ansible on {{ inventory_hostname }}"
+        parse: 'none'

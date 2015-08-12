@@ -1,0 +1,70 @@
+---
+- name: Backup Databases on webserver
+  hosts: webservers
+  sudo_user: www-data
+  sudo: yes
+
+  #vars:
+  #- 
+
+  tasks:
+  - name: Install Python and Boto for Amazon Upload.
+    apt: "name={{ item }} update_cache=yes state=latest"
+    with_items:
+      - python
+      - python-boto
+    sudo_user: root
+    sudo: yes
+
+  - name: Create Backups directory
+    file: "path={{ remote_backup_dir }} state=directory"
+    tags:
+      - folders
+      - databases
+
+  - name: Create backup filename variable
+    shell: "echo {{ inventory_hostname }}--databases-$(date +%Y-%m-%d.%H.%M).tar.gz"
+    register: backup_filename
+
+  - name: Dump all non-default databases to backup directory
+    shell: |
+      mysql --user={{ mysql_backup_user_username }} --password={{ mysql_backup_user_password }} -e 'show databases' | 
+      grep -Ev '(Database|mysql|_schema)' | 
+      while read dbname; do 
+      mysqldump --user={{ mysql_backup_user_username }} --password={{ mysql_backup_user_password }} --complete-insert $dbname > {{ remote_backup_dir }}/$dbname.sql;
+      done
+
+  - name: Compress backup directory to compressed file
+    shell: "tar -zcf {{ remote_base }}/{{ backup_filename.stdout }} {{ remote_backup_dir }}"
+
+  - name: Delete backup directory from server
+    file: "path={{ remote_backup_dir }} state=absent"
+    tags:
+      - folders
+      - databases
+
+  - name: Upload Backup file to Amazon S3 
+    s3: 
+      aws_access_key: "{{ s3_access_key }}"
+      aws_secret_key: "{{ s3_secret_key }}"
+      region: "{{ s3_region }}"
+      bucket: "{{ s3_bucket }}"
+      object: "{{ backup_filename.stdout }}"
+      src: "{{ remote_base }}/{{ backup_filename.stdout }}"
+      mode: put
+
+  - name: Delete backup file from server
+    file: "path={{ remote_base }}/{{ backup_filename.stdout }} state=absent"
+    tags:
+      - folders
+      - databases
+
+  - name: "Send notification to Slack #backups"
+    local_action:
+      module: slack
+      domain: "{{ slack_domain }}"
+      token: "{{ slack_token }}"
+      msg: "{{ inventory_hostname }} databases-backup; Completed."
+      channel: "#backups"
+      username: "Ansible on {{ inventory_hostname }}"
+      parse: 'none'

@@ -1,0 +1,68 @@
+---
+# tasks file for common
+
+- name: Install base packages
+  apt: "name={{ item }} update_cache=yes state=latest"
+  with_items:
+    - wget
+    - curl
+    - git
+    - makepasswd
+    - run-one
+    - ufw
+    - fail2ban
+    - ssmtp
+    - apparmor-profiles
+    - apparmor-utils
+    - ntp
+    - nano
+
+- name: Setup SSMTP config with Mandrill
+  template: src=ssmtp.conf.j2 dest=/etc/ssmtp/ssmtp.conf owner=root group=root mode=0640
+  register: ssmtp_config
+
+- name: Copy over test email
+  template: "src=test-email.txt.j2 dest=/tmp/test-email.txt owner=root group=root mode=0644"
+  register: ssmtp_email
+
+- name: Add UFW-SSH conf to Fail2Ban Actions
+  copy: src=ufw-ssh.fail2ban.conf dest=/etc/fail2ban/action.d/ufw-ssh.conf
+
+- name: Update SSH Fail2Ban Filter
+  copy: src=sshd-filter.fail2ban.conf dest=/etc/fail2ban/filter.d/sshd.conf
+
+- name: Setup fail2ban config
+  template: src=jail.local.j2 dest=/etc/fail2ban/jail.local owner=root group=root mode=0644
+  notify:
+    - Restart fail2ban
+
+- name: Enable UFW
+  ufw: direction=incoming policy=deny state=enabled
+
+- name: UFW limit SSH
+  ufw: "rule=limit port={{ ssh_port }}"
+
+- name: UFW open HTTP
+  ufw: rule=allow port=80
+
+- name: UFW open HTTPS
+  ufw: rule=allow port=443
+  notify:
+    - Restart UFW
+
+- name: Send test email
+  shell: "ssmtp {{ test_email_to }} < /tmp/test-email.txt"
+  when: ssmtp_config|changed or ssmtp_email|changed
+
+- name: Setup Paper Trail
+  lineinfile:
+    dest: /etc/rsyslog.conf
+    state: present
+    insertafter: EOF
+    line: "{{ papertrail_line }}"
+    regexp: '^\*\.\*'
+  notify:
+    - Restart rsyslog
+
+- name: Ensure SSH keys are all there
+  shell: ssh-keygen -A

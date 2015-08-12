@@ -1,0 +1,119 @@
+---
+- name: Deploy Supplement Scouter App
+  hosts: webservers
+  sudo: yes
+
+  vars:
+    - app_name: scouter
+    - git_repo: git@bitbucket.org:no1fitness/supplement-scouter.git
+    - web_path: /var/www/sites/supplement-scouter
+    - web_path_public: "{{ web_path }}/public"
+    - config_file: .env.php
+    - web_address: scouter.app
+    - mysql_db_name: scouter
+
+  roles:
+   - common
+   - webserver
+
+  tasks:
+    - name: clone git repo
+      git: "repo={{ git_repo }} dest={{ web_path }} accept_hostkey=yes version=reporting-changes"
+      sudo_user: www-data
+      register: cloned
+
+    - name: install composer deps
+      composer: "command=install working_dir={{ web_path }}"
+      sudo_user: www-data
+      when: cloned|changed
+
+    - name: make sure .env file exists
+      command: "cp {{ web_path }}/.env.example.php {{ web_path }}/{{ config_file }} creates={{ web_path }}/{{ config_file }}"
+      register: env
+
+    # - name: generate APP key
+    #   command: "php artisan key:generate chdir={{ web_path }}"
+    #   when: env|changed
+
+    - name: Create MySQL DB
+      mysql_db: "name={{ mysql_db_name }} state=present"
+
+    - name: Generate DB password
+      shell: makepasswd --chars=32
+      args:
+        creates: "{{ web_path }}/.dbpw"
+      register: dbpwd
+
+    - name: Create MySQL User
+      mysql_user: 
+        name: "{{ mysql_db_name }}-user"
+        password: "{{ dbpwd.stdout }}"
+        priv: "{{ mysql_db_name }}.*:ALL"
+        state: present
+      when: dbpwd.changed
+
+    - name: set DB_DATABASE
+      lineinfile: 
+        dest: "{{ web_path }}/{{ config_file }}"
+        regexp: "^'DB_DATABASE.*"
+        line: "'DB_DATABASE' => '{{ mysql_db_name }}',"
+        state: present
+      sudo: yes
+      sudo_user: www-data
+
+    - name: set DB_USERNAME
+      lineinfile: 
+        dest: "{{ web_path }}/{{ config_file }}"
+        regexp: "^'DB_USERNAME.*"
+        line: "'DB_USERNAME' => '{{ mysql_db_name }}-user',"
+      sudo: yes
+      sudo_user: www-data
+
+    - name: set DB_PASSWORD
+      lineinfile: 
+        dest: "{{ web_path }}/{{ config_file }}"
+        regexp: "^'DB_PASSWORD.*"
+        line: "'DB_PASSWORD' => '{{ dbpwd.stdout }}',"
+      sudo: yes
+      sudo_user: www-data
+      when: dbpwd.changed
+
+    - name: Save dbpw file
+      lineinfile: "dest={{ web_path }}/.dbpw line={{ dbpwd.stdout }} create=yes state=present"
+      sudo: yes
+      sudo_user: www-data
+      when: dbpwd.changed
+
+    - name: Run artisan migrate
+      shell: "php {{ web_path }}/artisan migrate --force"
+      sudo: yes
+      sudo_user: www-data
+      when: dbpwd.changed
+
+    - name: Laravel Scheduler
+      cron: >
+        job="run-one php {{ web_path }}/artisan schedule:run 1>> /dev/null 2>&1"
+        state=present
+        user=www-data
+        name="php artisan schedule:run"
+
+    - name: Drop Config for supervisord into the conf.d directory
+      template: src=templates/laravel4-worker.super.j2 dest=/etc/supervisor/conf.d/laravel-worker.conf
+      notify: reread supervisord
+
+    - name: Configure nginx
+      template: "src=templates/nginx.j2 dest=/etc/nginx/sites-available/{{ web_address }}"
+      register: link
+
+    - name: "Create symlink to {{ web_address }}"
+      file: "src=/etc/nginx/sites-available/{{ web_address }} dest=/etc/nginx/sites-enabled/{{ web_address }} state=link"
+      when: link|changed
+      notify:
+        - reload nginx
+
+  handlers:
+    - name: reload nginx
+      service: name=nginx state=reloaded
+
+    - name: reread supervisord
+      shell: "/usr/bin/supervisorctl reread && /usr/bin/supervisorctl update"

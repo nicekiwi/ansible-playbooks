@@ -1,0 +1,25 @@
+---
+# defaults file for common
+
+# Root
+root_email: root@example.com
+root_domain: example.com
+
+# Test Email
+test_email_to: test@example.com
+test_email_from: "{{ root_email }}"
+test_email_subject: "Test email from {{ ansible_hostname }}"
+test_email_message: Looks like Mandrill is all setup and working. :)
+
+# Fail2ban
+fail2ban_email: "{{ root_email }}"
+fail2ban_email_sender: Fail2Ban
+
+# SSMTP Mandrill
+mandrill_username: user@example.com
+mandrill_api_key: xxxxxxxxxxxxxxxxxxxxxx
+mandrill_address: smtp.mandrillapp.com
+mandrill_port: 587
+
+# Papertrail App
+papertrail_line: "*.*          @logs2.papertrailapp.com:50008"
