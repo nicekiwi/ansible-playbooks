@@ -8,7 +8,7 @@
 
   vars:
     - remote_backup_dir: "/tmp/ansible_backups_db"
-    - remote_backup_folders_dir: "{{ remote_backup_dir }}/folders"
+    - remote_backup_databases_dir: "{{ remote_backup_dir }}/databases"
 
   tasks:
 
