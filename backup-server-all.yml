@@ -25,7 +25,7 @@
         - folders
 
     - name: Create sites + config backup filename variable
-      shell: "echo {{ inventory_hostname }}--server-$(date +%Y-%m-%d.%H.%M).tar.gz"
+      shell: "echo {{ inventory_hostname }}--server-$(date +%Y-%m-%d--%H-%M).tar.gz"
       register: server_backup_filename
       tags:
         - folders

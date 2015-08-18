@@ -27,7 +27,7 @@
         - folders
 
     - name: Create server backup filename variable
-      shell: "echo ansible-backup-server-$(date +%Y-%m-%d.%H.%M).tar.gz"
+      shell: "echo ansible-backup-server-$(date +%Y-%m-%d--%H-%M).tar.gz"
       register: server_backup_filename
       tags:
         - folders
